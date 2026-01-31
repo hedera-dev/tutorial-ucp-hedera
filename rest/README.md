@@ -25,7 +25,7 @@ A complete demo of the Universal Commerce Protocol (UCP) with Hedera HBAR paymen
 git clone https://github.com/hedera-dev/tutorial-ucp-hedera
 cd tutorial-ucp-hedera
 
-# 3. clone and set up the UCP SDK (sibling directory)
+# 2. clone and set up the UCP SDK (sibling directory)
 mkdir -p sdk
 git clone https://github.com/Universal-Commerce-Protocol/python-sdk.git sdk/python
 cd sdk/python && uv sync && cd -
