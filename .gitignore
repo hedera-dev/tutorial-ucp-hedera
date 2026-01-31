@@ -4,5 +4,6 @@
 uv.lock
 .venv
 
+sdk/
 
 .env
