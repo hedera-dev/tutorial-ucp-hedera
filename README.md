@@ -41,5 +41,5 @@ A reference implementation of a UCP Merchant Server using Python and FastAPI.
 
 A reference implementation using Agent 2 Agent (A2A) protocol.
 
-- Located in `rest/a2a/`
+- Located in `a2a/`
 - **Status**: Implementation in progress
