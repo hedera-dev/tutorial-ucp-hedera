@@ -193,19 +193,13 @@ class IntegrationTest(absltest.TestCase):
     self,
     idempotency_key: str | None = None,
     request_id: str | None = None,
-    exclude: list[str] | None = None,
   ) -> dict[str, str]:
     """Construct request headers with optional overrides."""
-    headers = {
-      "UCP-Agent": 'profile="https://agent.example/profile"',
+    return {
       "request-signature": "test",
       "idempotency-key": idempotency_key or str(uuid.uuid4()),
       "request-id": request_id or str(uuid.uuid4()),
     }
-    if exclude:
-      for key in exclude:
-        headers.pop(key, None)
-    return headers
 
   def _create_checkout_payload(
     self,
@@ -405,23 +399,6 @@ class IntegrationTest(absltest.TestCase):
       self.assertEqual(qty_rose, 4, "Rose inventory should be 4 (5 - 1)")
       # 2 - 2 = 0
       self.assertEqual(qty_tulip, 0, "Tulip inventory should be 0 (2 - 2)")
-
-  def test_missing_ucp_agent_header(self) -> None:
-    """Tests that requests missing mandatory headers are rejected."""
-    with self.client:
-      payload = self._create_checkout_payload(
-        "test_checkout_missing_header", [("rose", "Red Rose", 1000, 1)]
-      )
-      response = self.client.post(
-        "/checkout-sessions",
-        headers=self._get_headers(
-          idempotency_key="7", request_id="7", exclude=["UCP-Agent"]
-        ),
-        json=payload.model_dump(mode="json", exclude_none=True),
-      )
-      # Missing header should result in 422 Unprocessable Entity (FastAPI
-      # default validation)
-      self.assertEqual(response.status_code, 422)
 
   def test_cancel_checkout(self) -> None:
     """Tests the checkout cancellation flow."""

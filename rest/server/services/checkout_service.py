@@ -15,17 +15,15 @@
 """Checkout service for managing the lifecycle of checkout sessions.
 
 This module provides the `CheckoutService` class, which encapsulates the
-business logic
-for creating, retrieving, updating, and completing checkout sessions. It handles
-integration with the persistence layer, fulfillment calculation, payment
-processing,
-and inventory validation.
+business logic for creating, retrieving, updating, and completing checkout
+sessions. It handles integration with the persistence layer, fulfillment
+calculation, payment processing, and inventory validation.
 
 Key responsibilities include:
 - Creating and managing checkout sessions with idempotency support.
 - Calculating checkout totals, including line items, shipping, and discounts.
 - Validating inventory availability.
-- Processing payments via various handlers (e.g., Google Pay, Shop Pay, Mock).
+- Processing Hedera HBAR payments (non-custodial).
 - Transforming checkout sessions into completed orders.
 - Supporting hierarchical fulfillment configuration.
 """
@@ -77,7 +75,6 @@ from ucp_sdk.models.schemas.shopping.payment_create_req import (
 from ucp_sdk.models.schemas.shopping.payment_resp import PaymentResponse
 from ucp_sdk.models.schemas.shopping.types import order_line_item
 from ucp_sdk.models.schemas.shopping.types import total_resp
-from ucp_sdk.models.schemas.shopping.types.card_credential import CardCredential
 from ucp_sdk.models.schemas.shopping.types.expectation import Expectation
 from ucp_sdk.models.schemas.shopping.types.expectation import (
   LineItem as ExpectationLineItem,
@@ -105,9 +102,6 @@ from ucp_sdk.models.schemas.shopping.types.order_line_item import OrderLineItem
 from ucp_sdk.models.schemas.shopping.types.postal_address import PostalAddress
 from ucp_sdk.models.schemas.shopping.types.shipping_destination_resp import (
   ShippingDestinationResponse,
-)
-from ucp_sdk.models.schemas.shopping.types.token_credential_resp import (
-  TokenCredentialResponse,
 )
 from ucp_sdk.models.schemas.shopping.types.total_resp import (
   TotalResponse as Total,
@@ -1171,157 +1165,67 @@ class CheckoutService:
   async def _process_payment(
     self, payment: PaymentCreateRequest, checkout: Checkout
   ) -> None:
-    """Validate and process payment instruments."""
-    instruments = payment.instruments
-    if not instruments:
-      raise InvalidRequestError("Missing payment instruments")
+    """Process Hedera HBAR payment.
 
-    selected_id = payment.selected_instrument_id
-    if not selected_id:
-      raise InvalidRequestError("Missing selected_instrument_id")
+    This demo only supports Hedera payments. The client sends a pre-signed
+    transaction which the server validates and submits to the Hedera network.
+    """
+    # Extract payment data from raw crypto payload
+    raw_crypto = getattr(payment, "_raw_crypto_payment", None)
+    if not raw_crypto:
+      raise InvalidRequestError("Missing payment data")
 
-    selected_instrument = next(
-      (i for i in instruments if i.root.id == selected_id), None
-    )
-    if not selected_instrument:
-      raise InvalidRequestError(f"Selected instrument {selected_id} not found")
-
-    handler_id = selected_instrument.root.handler_id
-    credential = selected_instrument.root.credential
+    credential = raw_crypto.get("credential")
     if not credential:
-      raise InvalidRequestError("Missing credentials in instrument")
+      raise InvalidRequestError("Missing credential in payment data")
 
-    # If it's a RootModel (like PaymentCredential), unwrap it to get the actual
-    # credential data
-    if hasattr(credential, "root"):
-      credential = credential.root
-
-    token = None
-    if isinstance(credential, CardCredential):
-      # Handle card details
-      logger.info(
-        "Processing card payment for card ending in %s",
-        credential.number[-4:] if credential.number else "unknown",
+    # Validate Hedera service is configured
+    if not self.hedera_service:
+      raise InvalidRequestError(
+        "Hedera payment not configured. "
+        "Set HEDERA_MERCHANT_ACCOUNT_ID in server .env file."
       )
-      return
-    elif isinstance(credential, TokenCredentialResponse):
-      token = credential.token
-    elif isinstance(credential, dict):
-      # Attempt to parse as TokenCredentialResponse or CardCredential
-      try:
-        cred_model = TokenCredentialResponse.model_validate(credential)
-        token = cred_model.token
-      except (ValueError, TypeError):
-        try:
-          cred_model = CardCredential.model_validate(credential)
-          logger.info(
-            "Processing card payment for card ending in %s",
-            cred_model.number[-4:] if cred_model.number else "unknown",
-          )
-          return
-        except (ValueError, TypeError):
-          # Fallback to direct access if validation fails (e.g. partial data)
-          token = credential.get("token")
-    else:
-      # Fallback for unknown types if model validation allowed extras or
-      # different types
-      logger.warning("Unknown credential type: %s", type(credential))
-      token = getattr(credential, "token", None)
 
-    if handler_id == "mock_payment_handler":
-      if token == "success_token":
-        return  # Success
-      elif token == "fail_token":
-        raise PaymentFailedError(
-          "Payment Failed: Insufficient Funds (Mock)",
-          code="INSUFFICIENT_FUNDS",
-        )
-      elif token == "fraud_token":
-        raise PaymentFailedError(
-          "Payment Failed: Fraud Detected (Mock)",
-          code="FRAUD_DETECTED",
-          status_code=403,
-        )
-      else:
-        raise PaymentFailedError(
-          f"Unknown mock token: {token}", code="UNKNOWN_TOKEN"
-        )
-    elif handler_id == "google_pay":
-      # Accept any token for now, or specific ones
-      return
-    elif handler_id == "shop_pay":
-      # For shop_pay, we expect a 'shop_token' credential type.
-      # Since we don't have a real backend, we accept it if present.
-      # The token value validation logic is similar to mock_payment_handler
-      # for this test. Or just accept any token.
-      return
-    elif handler_id == "hedera_payment":
-      # Hedera non-custodial payment handler
-      if not self.hedera_service:
-        raise InvalidRequestError(
-          "Hedera payment handler is not configured. "
-          "Please set HEDERA_MERCHANT_ACCOUNT_ID environment variable."
-        )
+    # Extract signed transaction
+    signed_tx = credential.get("signed_transaction")
+    if not signed_tx:
+      raise InvalidRequestError("Missing signed_transaction in credential")
 
-      # Extract signed transaction from credential
-      signed_tx = None
-      if isinstance(credential, dict):
-        signed_tx = credential.get("signed_transaction")
-      else:
-        signed_tx = getattr(credential, "signed_transaction", None)
+    # Get checkout total (in tinybars)
+    total_tinybars = 0
+    if checkout.totals:
+      for total in checkout.totals:
+        if total.type == "total":
+          total_tinybars = total.amount
+          break
 
-      if not signed_tx:
-        raise InvalidRequestError(
-          "Missing signed_transaction in Hedera payment instrument"
-        )
+    if total_tinybars == 0:
+      raise InvalidRequestError("Checkout total is zero")
 
-      # Calculate expected amount in HBAR
-      # Get total from checkout
-      total_amount = 0
-      if checkout.totals:
-        for total in checkout.totals:
-          if total.type == "total":
-            total_amount = total.amount
-            break
+    # Convert tinybars to HBAR (1 HBAR = 100,000,000 tinybars)
+    expected_hbar = total_tinybars / 100_000_000
+    logger.info("Processing %.4f HBAR (%d tinybars)", expected_hbar, total_tinybars)
 
-      if total_amount == 0:
-        raise InvalidRequestError("Checkout total is zero or not calculated")
+    try:
+      result = self.hedera_service.process_pre_signed_payment(
+        signed_transaction_base64=signed_tx,
+        expected_amount_hbar=expected_hbar,
+        checkout_id=checkout.id,
+      )
 
-      # Convert total to HBAR (assuming total is in USD cents)
-      total_usd = total_amount / 100.0
-      # TODO: Get real-time HBAR/USD rate from price oracle
-      # For now, use static conversion (example: 1 HBAR = $0.05)
-      hbar_usd_rate = 0.05
-      expected_hbar = total_usd / hbar_usd_rate
+      logger.info(
+        "Hedera payment processed: tx=%s, explorer=%s",
+        result["transaction_id"],
+        result["explorer_url"],
+      )
 
-      try:
-        result = self.hedera_service.process_pre_signed_payment(
-          signed_transaction_base64=signed_tx,
-          expected_amount_hbar=expected_hbar,
-          checkout_id=checkout.id,
-        )
-
-        # Store transaction ID in checkout metadata
-        if not checkout.metadata:
-          checkout.metadata = {}
-        checkout.metadata["hedera_transaction_id"] = result["transaction_id"]
-        checkout.metadata["hedera_explorer_url"] = result["explorer_url"]
-        checkout.metadata["hedera_network"] = result["network"]
-
-        logger.info("Hedera payment processed: %s", result["transaction_id"])
-
-      except ValueError as e:
-        # Validation error (wrong amount, recipient, etc.)
-        raise PaymentFailedError(
-          f"Invalid Hedera transaction: {e}",
-          code="INVALID_TRANSACTION",
-        ) from e
-      except Exception as e:
-        # Network or execution error
-        raise PaymentFailedError(
-          f"Hedera payment failed: {e}",
-          code="TRANSACTION_FAILED",
-        ) from e
-    else:
-      # Unknown handler
-      raise InvalidRequestError(f"Unsupported payment handler: {handler_id}")
+    except ValueError as e:
+      raise PaymentFailedError(
+        f"Invalid Hedera transaction: {e}",
+        code="INVALID_TRANSACTION",
+      ) from e
+    except Exception as e:
+      raise PaymentFailedError(
+        f"Hedera payment failed: {e}",
+        code="TRANSACTION_FAILED",
+      ) from e

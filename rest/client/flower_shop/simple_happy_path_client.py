@@ -108,17 +108,19 @@ def create_hedera_payment(
   customer_acct = AccountId.from_string(customer_account_id)
   merchant_acct = AccountId.from_string(merchant_account_id)
 
-  # Parse private key (remove 0x prefix if present)
-  key_hex = customer_private_key
-  if key_hex.startswith("0x"):
-    key_hex = key_hex[2:]
-  private_key = PrivateKey.from_string(key_hex)
+  # Parse private key
+  private_key = PrivateKey.from_string_ecdsa(customer_private_key)
 
-  # Create network and client
+  # Create network and client - use only node 0.0.3
+  target_node = AccountId(0, 0, 3)
   if network_name == "mainnet":
     network = Network(network="mainnet")
   else:
     network = Network(network="testnet")
+
+  # Filter to only use node 0.0.3 (must match server configuration)
+  network.nodes = [n for n in network.nodes if n._account_id == target_node]
+  network.current_node = network.nodes[0]
 
   client = Client(network)
   client.set_operator(customer_acct, private_key)
@@ -151,7 +153,6 @@ def create_hedera_payment(
 def get_headers() -> dict[str, str]:
   """Generate necessary headers for UCP requests."""
   return {
-    "UCP-Agent": 'profile="https://agent.example/profile"',
     "request-signature": "test",
     "idempotency-key": str(uuid.uuid4()),
     "request-id": str(uuid.uuid4()),
@@ -916,11 +917,11 @@ def main() -> None:
       )
       return
 
-    # Convert USD cents to HBAR (using $0.05/HBAR rate)
-    total_usd = checkout_data["totals"][-1]["amount"] / 100.0
-    amount_hbar = total_usd / 0.05
+    # Total amount is in tinybars (1 HBAR = 100,000,000 tinybars)
+    total_tinybars = checkout_data["totals"][-1]["amount"]
+    amount_hbar = total_tinybars / 100_000_000
 
-    logger.info("Total: $%.2f USD = %.2f HBAR", total_usd, amount_hbar)
+    logger.info("Total: %d tinybars = %.4f HBAR", total_tinybars, amount_hbar)
 
     # Create and sign Hedera transaction
     credential = create_hedera_payment(
@@ -938,8 +939,12 @@ def main() -> None:
         "handler_id": target_handler,
         "handler_name": "com.hedera.hbar",
         "type": "crypto",
-        "credential": credential,
-      }
+        "credential": {
+          "type": "signed_transaction",
+          "signed_transaction": credential,
+        },
+      },
+      "risk_signals": {},
     }
 
     headers = get_headers()

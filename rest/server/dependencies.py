@@ -16,13 +16,12 @@
 
 This module contains dependency injection logic for FastAPI endpoints,
 including:
-- Header validation (UCP-Agent, Idempotency-Key, Request-Signature).
+- Header validation (Idempotency-Key, Request-Signature).
 - Service instantiation (CheckoutService, FulfillmentService).
 - Database session management (Products and Transactions DBs).
 - Request signature verification for webhooks.
 """
 
-import re
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
@@ -42,61 +41,21 @@ class CommonHeaders(BaseModel):
   """Common headers used in UCP requests."""
 
   x_api_key: str | None = None
-  ucp_agent: str
   request_signature: str
   request_id: str
 
 
 async def common_headers(
   x_api_key: str | None = Header(None),
-  ucp_agent: str = Header(...),
   request_signature: str = Header(...),
   request_id: str = Header(...),
 ) -> CommonHeaders:
   """Extract and validate common headers."""
-  await validate_ucp_headers(ucp_agent)
   return CommonHeaders(
     x_api_key=x_api_key,
-    ucp_agent=ucp_agent,
     request_signature=request_signature,
     request_id=request_id,
   )
-
-
-async def validate_ucp_headers(ucp_agent: str):
-  """Validate UCP headers and version negotiation."""
-  server_version = config.get_server_version()
-  agent_version = server_version  # Default to server version if not specified
-
-  # Use regex to extract version more robustly.
-  # We look for 'version=' either at the start or after a semicolon,
-  # allowing for whitespace.
-  # Matches: version="1.2.3" or version=1.2.3
-  match = re.search(
-    r"(?:^|;)\s*version=(?:\"([^\"]+)\"|([^;]+))", ucp_agent, re.IGNORECASE
-  )
-  if match:
-    # Group 1 is quoted value, Group 2 is unquoted value
-    agent_version = match.group(1) or match.group(2)
-    agent_version = agent_version.strip()
-
-  if agent_version > server_version:
-    raise HTTPException(
-      status_code=400,
-      detail={
-        "status": "error",
-        "errors": [
-          {
-            "code": "VERSION_UNSUPPORTED",
-            "message": (
-              f"Version {agent_version} is not supported. This merchant"
-              f" implements version {server_version}."
-            ),
-            "severity": "critical",
-          }
-        ],
-      },
-    )
 
 
 async def idempotency_header(

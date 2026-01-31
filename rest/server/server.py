@@ -14,6 +14,9 @@
 
 """UCP Merchant Server (Python/FastAPI)."""
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import logging
 import sys
 from collections.abc import Sequence

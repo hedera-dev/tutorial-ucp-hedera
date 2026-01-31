@@ -1,4 +1,4 @@
 id,country_code,service_level,price,title
-std-ship,default,standard,500,Standard Shipping
-exp-ship-us,US,express,1500,Express Shipping (US)
-exp-ship-intl,default,express,2500,International Express
+std-ship,default,standard,1000000,Standard Shipping (0.01 HBAR)
+exp-ship-us,US,express,3000000,Express Shipping US (0.03 HBAR)
+exp-ship-intl,default,express,5000000,International Express (0.05 HBAR)
