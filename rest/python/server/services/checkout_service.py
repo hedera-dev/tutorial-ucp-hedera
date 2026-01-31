@@ -48,6 +48,7 @@ from exceptions import PaymentFailedError
 from exceptions import ResourceNotFoundError
 import httpx
 from models import UnifiedCheckout as Checkout
+from services.hedera_service import HederaPaymentService
 from models import UnifiedCheckoutCreateRequest
 from models import UnifiedCheckoutUpdateRequest
 from pydantic import AnyUrl
@@ -130,6 +131,13 @@ class CheckoutService:
     self.products_session = products_session
     self.transactions_session = transactions_session
     self.base_url = base_url.rstrip("/")
+
+    # Initialize Hedera payment service if configured
+    try:
+      self.hedera_service = HederaPaymentService()
+    except (ValueError, Exception) as e:
+      logger.info("Hedera payment service not initialized: %s", e)
+      self.hedera_service = None
 
   def _compute_hash(self, data: Any) -> str:
     """Compute SHA256 hash of the JSON-serialized data."""
@@ -651,7 +659,7 @@ class CheckoutService:
     self._ensure_modifiable(checkout, "complete")
 
     # Process Payment
-    await self._process_payment(payment)
+    await self._process_payment(payment, checkout)
 
     # Validate Fulfillment (Required for completion in this implementation)
     fulfillment_valid = False
@@ -1160,7 +1168,9 @@ class CheckoutService:
 
     checkout.totals.append(Total(type="total", amount=grand_total))
 
-  async def _process_payment(self, payment: PaymentCreateRequest) -> None:
+  async def _process_payment(
+    self, payment: PaymentCreateRequest, checkout: Checkout
+  ) -> None:
     """Validate and process payment instruments."""
     instruments = payment.instruments
     if not instruments:
@@ -1245,6 +1255,73 @@ class CheckoutService:
       # The token value validation logic is similar to mock_payment_handler
       # for this test. Or just accept any token.
       return
+    elif handler_id == "hedera_payment":
+      # Hedera non-custodial payment handler
+      if not self.hedera_service:
+        raise InvalidRequestError(
+          "Hedera payment handler is not configured. "
+          "Please set HEDERA_MERCHANT_ACCOUNT_ID environment variable."
+        )
+
+      # Extract signed transaction from credential
+      signed_tx = None
+      if isinstance(credential, dict):
+        signed_tx = credential.get("signed_transaction")
+      else:
+        signed_tx = getattr(credential, "signed_transaction", None)
+
+      if not signed_tx:
+        raise InvalidRequestError(
+          "Missing signed_transaction in Hedera payment instrument"
+        )
+
+      # Calculate expected amount in HBAR
+      # Get total from checkout
+      total_amount = 0
+      if checkout.totals:
+        for total in checkout.totals:
+          if total.type == "total":
+            total_amount = total.amount
+            break
+
+      if total_amount == 0:
+        raise InvalidRequestError("Checkout total is zero or not calculated")
+
+      # Convert total to HBAR (assuming total is in USD cents)
+      total_usd = total_amount / 100.0
+      # TODO: Get real-time HBAR/USD rate from price oracle
+      # For now, use static conversion (example: 1 HBAR = $0.05)
+      hbar_usd_rate = 0.05
+      expected_hbar = total_usd / hbar_usd_rate
+
+      try:
+        result = self.hedera_service.process_pre_signed_payment(
+          signed_transaction_base64=signed_tx,
+          expected_amount_hbar=expected_hbar,
+          checkout_id=checkout.id,
+        )
+
+        # Store transaction ID in checkout metadata
+        if not checkout.metadata:
+          checkout.metadata = {}
+        checkout.metadata["hedera_transaction_id"] = result["transaction_id"]
+        checkout.metadata["hedera_explorer_url"] = result["explorer_url"]
+        checkout.metadata["hedera_network"] = result["network"]
+
+        logger.info("Hedera payment processed: %s", result["transaction_id"])
+
+      except ValueError as e:
+        # Validation error (wrong amount, recipient, etc.)
+        raise PaymentFailedError(
+          f"Invalid Hedera transaction: {e}",
+          code="INVALID_TRANSACTION",
+        ) from e
+      except Exception as e:
+        # Network or execution error
+        raise PaymentFailedError(
+          f"Hedera payment failed: {e}",
+          code="TRANSACTION_FAILED",
+        ) from e
     else:
       # Unknown handler
       raise InvalidRequestError(f"Unsupported payment handler: {handler_id}")

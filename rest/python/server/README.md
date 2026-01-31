@@ -16,98 +16,73 @@
 
 # UCP Merchant Server (Python/FastAPI)
 
-This is a reference implementation of a UCP Merchant Server, designed to be
-deployable both inside and outside of Google.
+Reference implementation of a UCP Merchant Server with Hedera HBAR payments.
 
-## Project Structure
+## Quick Start
 
-*   `server.py`: The entry point for the FastAPI application.
-*   `pyproject.toml`: Project configuration for external dependency management
-    and packaging.
+**New to UCP?** Use the one-command setup from the parent directory:
 
-## Prerequisites
-
-1.  Install uv: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-2.  Install dependencies: `uv sync`
-
-## Prepare the workspace
-
-First, clone the necessary repositories and set your environment variables. You
-will need both the Samples repository (which contains the Python server) and the
-SDK repository.
-
-NOTE: Temporarily the Samples repository expects the SDK at a known relative
-filesystem location, as such, the target paths in these example are significant.
-
-```shell
-mkdir sdk
-git clone https://github.com/Universal-Commerce-Protocol/python-sdk.git sdk/python
-pushd sdk/python
-uv sync
-popd
-git clone https://github.com/Universal-Commerce-Protocol/samples.git
-cd samples/rest/python/server
-uv sync
+```bash
+cd rest/python
+python setup.py
 ```
 
-## Initialize the sample database
+This handles everything: dependencies, database, and Hedera credentials.
+See [../README.md](../README.md) for the complete quick start guide.
 
-The test server is a store front for a flower shop; we have some test data to
-exemplify ordering various items. The data is a simple SQLite database created
-in a separate step to allow easy experimentation and inspection after each
-request.
+## Manual Setup
 
-Run the following commands to create a local database populated with example
-test data. This script maps raw product information into the UCP schema so the
-sample server can respond to queries.
+### Prerequisites
 
-```shell
-mkdir /tmp/ucp_test
+1. Install uv: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+2. Install dependencies: `uv sync`
+3. Hedera testnet ECDSA account from [portal.hedera.com](https://portal.hedera.com)
+
+### Initialize Database
+
+```bash
+mkdir -p /tmp/ucp_test
 uv run import_csv.py \
     --products_db_path=/tmp/ucp_test/products.db \
     --transactions_db_path=/tmp/ucp_test/transactions.db \
     --data_dir=../test_data/flower_shop
 ```
 
-## Run the Server
+### Configure Hedera
 
-Start the server on port 8182, pointing to your initialized data.
+Create `.env` file:
 
-Start it in the background so we can use the terminal for other commands or
-start the server and the client in separate terminals.
+```bash
+HEDERA_NETWORK=testnet
+HEDERA_MERCHANT_ACCOUNT_ID=0.0.YOUR_ACCOUNT_ID
+HEDERA_MERCHANT_PRIVATE_KEY=0xYOUR_ECDSA_KEY
+```
 
-```shell
+### Run Server
+
+```bash
 uv run server.py \
    --products_db_path=/tmp/ucp_test/products.db \
    --transactions_db_path=/tmp/ucp_test/transactions.db \
-   --port=8182 &
-SERVER_PID=$!
+   --port=8182
 ```
 
-Note: Keep the server running for the duration of running the client and the
-following experiments.
+### Run Client
 
-## Run a Simple Client
-
-Exercise a simple checkout path: Once the server is running, execute the simple
-client that creates a checkout session, adds items to the card and completes the
-order.
-
-```shell
-cd samples/rest/python/client/flower_shop/
+```bash
+cd ../client/flower_shop
 uv sync
-uv run simple_happy_path_client.py \
-   --server_url=http://localhost:8182
+uv run simple_happy_path_client.py --server_url=http://localhost:8182
 ```
 
 ## Testing Endpoints
 
 The server exposes an additional endpoint for simulation and testing purposes:
 
-*   `POST /testing/simulate-shipping/{id}`: Triggers a simulated "order shipped"
-    event for the specified order ID. This updates the order status and sends a
-    webhook notification if configured. This endpoint requires the
-    `Simulation-Secret` header to match the configured `--simulation_secret`.
+- `POST /testing/simulate-shipping/{id}`: Triggers a simulated "order shipped"
+  event for the specified order ID. This updates the order status and sends a
+  webhook notification if configured. This endpoint requires the
+  `Simulation-Secret` header to match the configured `--simulation_secret`.
 
 ## Discovery
 
@@ -204,14 +179,8 @@ Response:
             {
               "type": "CARD",
               "parameters": {
-                "allowedAuthMethods": [
-                  "PAN_ONLY",
-                  "CRYPTOGRAM_3DS"
-                ],
-                "allowedCardNetworks": [
-                  "VISA",
-                  "MASTERCARD"
-                ]
+                "allowedAuthMethods": ["PAN_ONLY", "CRYPTOGRAM_3DS"],
+                "allowedCardNetworks": ["VISA", "MASTERCARD"]
               },
               "tokenization_specification": [
                 {
@@ -238,10 +207,7 @@ Response:
           "https://ucp.dev/schemas/shopping/types/card_payment_instrument.json"
         ],
         "config": {
-          "supported_tokens": [
-            "success_token",
-            "fail_token"
-          ]
+          "supported_tokens": ["success_token", "fail_token"]
         }
       }
     ]
@@ -255,12 +221,12 @@ Full response
 
 ## Capabilities & Extensions
 
-*   Capabilities: Schema and Operations for commerce features identified via
-    reverse-domain notation to prevent conflicts.
+- Capabilities: Schema and Operations for commerce features identified via
+  reverse-domain notation to prevent conflicts.
 
-*   Extensions: Modular additions (e.g., discounts, fulfillment etc) that
-    augment the schema of the base functionality of a capability. These use JSON
-    Schema’s allOf composition to modify capabilities predictably.
+- Extensions: Modular additions (e.g., discounts, fulfillment etc) that
+  augment the schema of the base functionality of a capability. These use JSON
+  Schema’s allOf composition to modify capabilities predictably.
 
 ### Example of Checkout Capability
 
@@ -577,9 +543,7 @@ curl -X PUT http://localhost:8182/checkout-sessions/$CHECKOUT_ID \
   "order_permalink_url": null,
   "ap2": null,
   "discounts": {
-    "codes": [
-      "10OFF"
-    ],
+    "codes": ["10OFF"],
     "applied": [
       {
         "code": "10OFF",

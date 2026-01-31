@@ -10,6 +10,8 @@ authors = [
 dependencies = [
     "pydantic>=2.12.0",
     "ucp-sdk",
+    "hiero-sdk-python>=0.1.10",
+    "python-dotenv>=1.0.0",
 ]
 
 [dependency-groups]

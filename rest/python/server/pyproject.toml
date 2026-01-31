@@ -20,6 +20,8 @@ dependencies = [
     "ucp-sdk",
     "shortuuid",
     "httpx>=0.26.0",
+    "hiero-sdk-python>=0.1.10",
+    "python-dotenv>=1.0.0",
 ]
 
 [dependency-groups]

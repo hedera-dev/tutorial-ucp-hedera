@@ -15,6 +15,7 @@
 """Discovery routes for the UCP server."""
 
 import json
+import os
 import pathlib
 import uuid
 from fastapi import APIRouter
@@ -41,8 +42,16 @@ async def get_merchant_profile(request: Request):
     template = f.read()
 
   # Replace placeholders
-  profile_json = template.replace(
-    "{{ENDPOINT}}", str(request.base_url).rstrip("/")
-  ).replace("{{SHOP_ID}}", SHOP_ID)
+  profile_json = (
+    template.replace("{{ENDPOINT}}", str(request.base_url).rstrip("/"))
+    .replace("{{SHOP_ID}}", SHOP_ID)
+    .replace(
+      "{{HEDERA_NETWORK}}", os.getenv("HEDERA_NETWORK", "testnet")
+    )
+    .replace(
+      "{{HEDERA_MERCHANT_ACCOUNT_ID}}",
+      os.getenv("HEDERA_MERCHANT_ACCOUNT_ID", ""),
+    )
+  )
 
   return UcpDiscoveryProfile(**json.loads(profile_json))

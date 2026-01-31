@@ -143,6 +143,22 @@
             "fail_token"
           ]
         }
+      },
+      {
+        "id": "hedera_payment",
+        "name": "com.hedera.hbar",
+        "version": "2026-01-11",
+        "spec": "https://hedera.com/ucp/payment-handler",
+        "config_schema": "https://hedera.com/ucp/config.json",
+        "instrument_schemas": [
+          "https://hedera.com/ucp/signed-transaction.json"
+        ],
+        "config": {
+          "network": "{{HEDERA_NETWORK}}",
+          "merchant_account_id": "{{HEDERA_MERCHANT_ACCOUNT_ID}}",
+          "supported_tokens": ["HBAR"],
+          "accepts_pre_signed": true
+        }
       }
     ]
   }

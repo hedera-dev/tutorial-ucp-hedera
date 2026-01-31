@@ -12,9 +12,9 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
-"""Simple Happy Path Client Script for UCP SDK.
+"""Simple Happy Path Client Script for UCP SDK with Hedera Payment.
 
-This script demonstrates a basic "happy path" user journey:
+This script demonstrates a basic "happy path" user journey with Hedera payments:
 0. Discovery: Querying the merchant to see what they support.
 1. Creating a new checkout session (cart).
 2. Adding items to the checkout session.
@@ -22,37 +22,130 @@ This script demonstrates a basic "happy path" user journey:
 4. Triggering fulfillment option generation.
 5. Selecting a fulfillment destination.
 6. Selecting a fulfillment option.
-7. Completing the checkout by processing a payment.
+7. Completing the checkout by processing a Hedera HBAR payment.
 
 Usage:
+  export HEDERA_CUSTOMER_ACCOUNT_ID=0.0.XXXXX
+  export HEDERA_CUSTOMER_PRIVATE_KEY=0xabcd...
   uv run simple_happy_path_client.py --server_url=http://localhost:8182
 """
 
 import argparse
+import base64
 import json
 import logging
+import os
 from pathlib import Path
 import uuid
+
 import httpx
+from dotenv import load_dotenv
+from hiero_sdk_python import (
+  AccountId,
+  Client,
+  Network,
+  PrivateKey,
+  TransferTransaction,
+)
 from ucp_sdk.models.schemas.shopping import checkout_create_req
 from ucp_sdk.models.schemas.shopping import checkout_update_req
 from ucp_sdk.models.schemas.shopping import payment_create_req
-from ucp_sdk.models.schemas.shopping.payment_data import PaymentData
 from ucp_sdk.models.schemas.shopping.types import buyer
 from ucp_sdk.models.schemas.shopping.types import item_create_req
 from ucp_sdk.models.schemas.shopping.types import item_update_req
 from ucp_sdk.models.schemas.shopping.types import line_item_create_req
 from ucp_sdk.models.schemas.shopping.types import line_item_update_req
-from ucp_sdk.models.schemas.shopping.types.card_payment_instrument import (
-  CardPaymentInstrument,
-)
-from ucp_sdk.models.schemas.shopping.types.payment_instrument import (
-  PaymentInstrument,
-)
-from ucp_sdk.models.schemas.shopping.types.postal_address import PostalAddress
-from ucp_sdk.models.schemas.shopping.types.token_credential_resp import (
-  TokenCredentialResponse,
-)
+
+
+def load_env_file() -> None:
+  """Load environment variables from .env file if it exists."""
+  env_path = Path(__file__).parent / ".env"
+  if env_path.exists():
+    load_dotenv(env_path)
+
+
+def get_hedera_merchant_account(discovery_data: dict) -> str | None:
+  """Extract Hedera merchant account from discovery data.
+
+  Args:
+      discovery_data: The discovery response from the merchant.
+
+  Returns:
+      The merchant's Hedera account ID, or None if not found.
+  """
+  handlers = discovery_data.get("payment", {}).get("handlers", [])
+  for handler in handlers:
+    if handler.get("name") == "com.hedera.hbar":
+      config = handler.get("config", {})
+      return config.get("merchant_account_id")
+  return None
+
+
+def create_hedera_payment(
+  customer_account_id: str,
+  customer_private_key: str,
+  merchant_account_id: str,
+  amount_hbar: float,
+  checkout_id: str,
+  network_name: str = "testnet",
+) -> str:
+  """Create and sign a Hedera transfer transaction.
+
+  Args:
+      customer_account_id: The customer's Hedera account ID (e.g., 0.0.12345).
+      customer_private_key: The customer's private key (hex format with 0x).
+      merchant_account_id: The merchant's Hedera account ID.
+      amount_hbar: The amount to transfer in HBAR.
+      checkout_id: The checkout session ID for memo.
+      network_name: The Hedera network (testnet or mainnet).
+
+  Returns:
+      Base64-encoded signed transaction bytes.
+  """
+  logger = logging.getLogger(__name__)
+
+  # Parse account IDs
+  customer_acct = AccountId.from_string(customer_account_id)
+  merchant_acct = AccountId.from_string(merchant_account_id)
+
+  # Parse private key (remove 0x prefix if present)
+  key_hex = customer_private_key
+  if key_hex.startswith("0x"):
+    key_hex = key_hex[2:]
+  private_key = PrivateKey.from_string(key_hex)
+
+  # Create network and client
+  if network_name == "mainnet":
+    network = Network(network="mainnet")
+  else:
+    network = Network(network="testnet")
+
+  client = Client(network)
+  client.set_operator(customer_acct, private_key)
+
+  # Convert HBAR to tinybars (1 HBAR = 100,000,000 tinybars)
+  amount_tinybars = int(amount_hbar * 100_000_000)
+
+  logger.info(
+    "Transfer: %.2f HBAR from %s to %s",
+    amount_hbar,
+    customer_account_id,
+    merchant_account_id,
+  )
+
+  # Create transfer transaction
+  transfer_tx = (
+    TransferTransaction()
+    .add_hbar_transfer(customer_acct, -amount_tinybars)
+    .add_hbar_transfer(merchant_acct, amount_tinybars)
+    .set_transaction_memo(f"UCP Checkout: {checkout_id}")
+    .freeze_with(client)
+    .sign(private_key)
+  )
+
+  # Get transaction bytes and encode as base64
+  tx_bytes = transfer_tx.to_bytes()
+  return base64.b64encode(tx_bytes).decode("utf-8")
 
 
 def get_headers() -> dict[str, str]:
@@ -150,7 +243,10 @@ def log_interaction(
 
 
 def main() -> None:
-  """Run the happy path client."""
+  """Run the happy path client with Hedera payment."""
+  # Load .env file first
+  load_env_file()
+
   parser = argparse.ArgumentParser()
 
   parser.add_argument(
@@ -165,6 +261,24 @@ def main() -> None:
     help="Path to export requests and responses as markdown.",
   )
 
+  parser.add_argument(
+    "--hedera_customer_account_id",
+    default=os.environ.get("HEDERA_CUSTOMER_ACCOUNT_ID"),
+    help="Hedera customer account ID (e.g., 0.0.12345)",
+  )
+
+  parser.add_argument(
+    "--hedera_customer_private_key",
+    default=os.environ.get("HEDERA_CUSTOMER_PRIVATE_KEY"),
+    help="Hedera customer private key (hex format with 0x prefix)",
+  )
+
+  parser.add_argument(
+    "--hedera_network",
+    default=os.environ.get("HEDERA_NETWORK", "testnet"),
+    help="Hedera network (testnet or mainnet)",
+  )
+
   args = parser.parse_args()
 
   # Configure Logging
@@ -174,6 +288,20 @@ def main() -> None:
   )
 
   logger = logging.getLogger(__name__)
+
+  # Validate Hedera credentials at startup (fail fast)
+  hedera_customer_account = args.hedera_customer_account_id
+  hedera_customer_key = args.hedera_customer_private_key
+  hedera_network = args.hedera_network
+
+  if not hedera_customer_account or not hedera_customer_key:
+    logger.error(
+      "Hedera credentials required. Set HEDERA_CUSTOMER_ACCOUNT_ID and "
+      "HEDERA_CUSTOMER_PRIVATE_KEY environment variables or use CLI args."
+    )
+    return
+
+  logger.info("Using Hedera payment with account: %s", hedera_customer_account)
 
   client = httpx.Client(base_url=args.server_url)
 
@@ -236,6 +364,16 @@ def main() -> None:
 
     for h in supported_handlers:
       logger.info(" - %s (%s)", h["id"], h["name"])
+
+    # Extract Hedera merchant account
+    hedera_merchant_account = get_hedera_merchant_account(discovery_data)
+    if not hedera_merchant_account:
+      logger.error(
+        "Merchant does not support Hedera payments (com.hedera.hbar). Aborting."
+      )
+      return
+
+    logger.info("Hedera merchant account: %s", hedera_merchant_account)
 
     # ==========================================================================
 
@@ -762,71 +900,46 @@ def main() -> None:
 
     # ==========================================================================
 
-    # STEP 7: Complete Checkout (Payment)
+    # STEP 7: Complete Checkout (Hedera Payment)
 
     # ==========================================================================
 
-    logger.info("\nSTEP 7: Processing Payment...")
+    logger.info("\nSTEP 7: Processing Hedera Payment...")
 
-    # We use the 'mock_payment_handler' discovered in Step 0.
-
-    # In a real app, you'd match a handler ID (e.g. 'gpay') to your client
-
-    # logic.
-
-    target_handler = "mock_payment_handler"
-
-    if not any(h["id"] == target_handler for h in supported_handlers):
-      logger.error("Merchant does not support %s. Aborting.", target_handler)
-
+    # Verify merchant supports Hedera payment
+    target_handler = "hedera_payment"
+    if not any(
+      h.get("name") == "com.hedera.hbar" for h in supported_handlers
+    ):
+      logger.error(
+        "Merchant does not support Hedera payments. Aborting."
+      )
       return
 
-    # Create Payment Data (Single Instrument) using strong types
+    # Convert USD cents to HBAR (using $0.05/HBAR rate)
+    total_usd = checkout_data["totals"][-1]["amount"] / 100.0
+    amount_hbar = total_usd / 0.05
 
-    # Matches the structure expected by the server's updated complete_checkout
+    logger.info("Total: $%.2f USD = %.2f HBAR", total_usd, amount_hbar)
 
-    billing_address = PostalAddress(
-      street_address="123 Main St",
-      address_locality="Anytown",
-      address_region="CA",
-      address_country="US",
-      postal_code="12345",
+    # Create and sign Hedera transaction
+    credential = create_hedera_payment(
+      customer_account_id=hedera_customer_account,
+      customer_private_key=hedera_customer_key,
+      merchant_account_id=hedera_merchant_account,
+      amount_hbar=amount_hbar,
+      checkout_id=checkout_id,
+      network_name=hedera_network,
     )
 
-    credential = TokenCredentialResponse(type="token", token="success_token")
-
-    instr = CardPaymentInstrument(
-      id="instr_my_card",
-      handler_id=target_handler,
-      handler_name=target_handler,
-      type="card",
-      brand="Visa",
-      last_digits="4242",
-      credential=credential,
-      billing_address=billing_address,
-    )
-
-    # Wrapped in RootModel
-
-    wrapped_instr = PaymentInstrument(root=instr)
-
-    # Use PaymentData to wrap the payload
-
-    final_req = PaymentData(payment_data=wrapped_instr)
-
-    # Add risk_signals as extra fields (since it's not explicitly in the model)
-
-    # Using model_extra or just passing to constructor if allow_extra is true
-
-    # PaymentData allows extra.
-
-    final_payload = final_req.model_dump(
-      mode="json", by_alias=True, exclude_none=True
-    )
-
-    final_payload["risk_signals"] = {
-      "ip": "127.0.0.1",
-      "browser": "python-httpx",
+    final_payload = {
+      "payment_data": {
+        "id": f"instr_hedera_{uuid.uuid4().hex[:8]}",
+        "handler_id": target_handler,
+        "handler_name": "com.hedera.hbar",
+        "type": "crypto",
+        "credential": credential,
+      }
     }
 
     headers = get_headers()
@@ -858,7 +971,7 @@ def main() -> None:
         headers,
         final_payload,
         response,
-        "Step 7: Complete Checkout",
+        "Step 7: Complete Checkout (Hedera Payment)",
         replacements=global_replacements,
         extractions=extractions,
       )
@@ -876,13 +989,24 @@ def main() -> None:
 
     logger.info("Order Permalink: %s", final_data["order"]["permalink_url"])
 
+    # Log Hedera-specific metadata if present
+    order_metadata = final_data.get("order", {}).get("metadata", {})
+    if order_metadata.get("hedera_transaction_id"):
+      logger.info(
+        "Hedera Transaction ID: %s", order_metadata["hedera_transaction_id"]
+      )
+    if order_metadata.get("hedera_explorer_url"):
+      logger.info(
+        "Hedera Explorer URL: %s", order_metadata["hedera_explorer_url"]
+      )
+
     # ==========================================================================
 
     # DONE
 
     # ==========================================================================
 
-    logger.info("\nHappy Path completed successfully.")
+    logger.info("\nHappy Path completed successfully with Hedera payment.")
 
   except Exception:  # pylint: disable=broad-exception-caught
     logger.exception("An unexpected error occurred:")
