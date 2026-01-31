@@ -21,35 +21,25 @@ Universal Commerce Protocol (UCP).
 
 ## Sample Implementations
 
-### Python
+### REST (Python) - Start Here
 
 A reference implementation of a UCP Merchant Server using Python and FastAPI.
 
-*   **Server**: [Documentation](rest/python/server/README.md)
+👉 **[Get Started with the REST Tutorial](rest/README.md)**
 
-    *   Located in `rest/python/server/`.
-    *   Demonstrates capability discovery, checkout session management, payment
-        processing, and order lifecycle.
-    *   Includes simulation endpoints for testing.
+- **Server**: Located in `rest/server/`
+  - Demonstrates capability discovery, checkout session management, payment
+    processing, and order lifecycle.
+  - Includes simulation endpoints for testing.
 
-*   **Client**:
-    [Happy Path Script](rest/python/client/flower_shop/simple_happy_path_client.py)
+- **Client**: Located in `rest/client/`
+  - [Happy Path Script](rest/client/flower_shop/simple_happy_path_client.py) -
+    A script demonstrating a full "happy path" user journey (discovery ->
+    checkout -> payment).
 
-    *   Located in `rest/python/client/`.
-    *   A script demonstrating a full "happy path" user journey (discovery ->
-        checkout -> payment).
+### A2A (Coming Soon)
 
-### Node.js
+A reference implementation using Agent 2 Agent (A2A) protocol.
 
-A reference implementation of a UCP Merchant Server using Node.js, Hono, and
-Zod.
-
-*   **Server**: [Documentation](rest/nodejs/README.md)
-    *   Located in `rest/nodejs/`.
-    *   Demonstrates implementation of UCP specifications for shopping,
-        checkout, and order management using a Node.js stack.
-
-## Getting Started
-
-Please refer to the specific README files linked above for detailed instructions
-on how to set up, run, and test each sample.
+- Located in `rest/a2a/`
+- **Status**: Implementation in progress

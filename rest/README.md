@@ -87,15 +87,14 @@ The client (`simple_happy_path_client.py`) demonstrates a complete checkout flow
 ## Expected Output
 
 ```
-Using Hedera payment with account: 0.0.12345
-Hedera merchant account: 0.0.67890
-...
-Total: $59.85 USD = 1197.00 HBAR
-Transfer: 1197.00 HBAR from 0.0.12345 to 0.0.67890
+Total: 180000000 tinybars = 1.8000 HBAR
+Transfer: 1.80 HBAR from 0.0.7381367 to 0.0.5115129
+HTTP Request: POST http://localhost:8182/checkout-sessions/bc67348b-c577-47a8-a6e8-419ce5a7e9cd/complete "HTTP/1.1 200 OK"
 Payment Successful!
-Order ID: order_abc123
-Hedera Transaction ID: 0.0.12345@1234567890.123456789
-Hedera Explorer URL: https://hashscan.io/testnet/transaction/...
+Checkout Status: completed
+Order ID: 4ab4c97a-fda0-484f-9757-6a4ba6c13103
+Order Permalink: http://localhost:8182/orders4ab4c97a-fda0-484f-9757-6a4ba6c13103
+Happy Path completed successfully with Hedera payment.
 ```
 
 ## Configuration
@@ -104,13 +103,13 @@ Hedera Explorer URL: https://hashscan.io/testnet/transaction/...
 
 Both server and client use `.env` files (created by `setup.sh`):
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `HEDERA_NETWORK` | Network to use | `testnet` |
-| `HEDERA_MERCHANT_ACCOUNT_ID` | Merchant's Hedera account | `0.0.12345` |
-| `HEDERA_MERCHANT_PRIVATE_KEY` | Merchant's private key | `0x...` |
-| `HEDERA_CUSTOMER_ACCOUNT_ID` | Customer's Hedera account | `0.0.12345` |
-| `HEDERA_CUSTOMER_PRIVATE_KEY` | Customer's private key | `0x...` |
+| Variable                      | Description               | Example     |
+| ----------------------------- | ------------------------- | ----------- |
+| `HEDERA_NETWORK`              | Network to use            | `testnet`   |
+| `HEDERA_MERCHANT_ACCOUNT_ID`  | Merchant's Hedera account | `0.0.12345` |
+| `HEDERA_MERCHANT_PRIVATE_KEY` | Merchant's private key    | `0x...`     |
+| `HEDERA_CUSTOMER_ACCOUNT_ID`  | Customer's Hedera account | `0.0.12345` |
+| `HEDERA_CUSTOMER_PRIVATE_KEY` | Customer's private key    | `0x...`     |
 
 For testing, you can use the same account for both merchant and customer.
 
@@ -119,6 +118,7 @@ For testing, you can use the same account for both merchant and customer.
 ### "Distribution not found" for ucp-sdk
 
 Make sure you cloned and set up the SDK first:
+
 ```bash
 mkdir sdk
 git clone https://github.com/Universal-Commerce-Protocol/python-sdk.git sdk/python
@@ -128,6 +128,7 @@ cd sdk/python && uv sync && cd -
 ### "Hedera credentials required"
 
 Set environment variables or create `.env` file:
+
 ```bash
 export HEDERA_CUSTOMER_ACCOUNT_ID=0.0.12345
 export HEDERA_CUSTOMER_PRIVATE_KEY=0xabcd...

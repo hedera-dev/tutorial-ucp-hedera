@@ -50,18 +50,29 @@ print_error() {
     echo -e "${RED}✗${RESET} $1"
 }
 
-create_env_file() {
+create_server_env_file() {
     local path="$1"
-    local account_id="$2"
-    local private_key="$3"
+    local merchant_account_id="$2"
+    local merchant_private_key="$3"
 
     cat > "$path" << EOF
 # Hedera Configuration (ECDSA Account Only)
 HEDERA_NETWORK=testnet
-HEDERA_MERCHANT_ACCOUNT_ID=$account_id
-HEDERA_MERCHANT_PRIVATE_KEY=$private_key
-HEDERA_CUSTOMER_ACCOUNT_ID=$account_id
-HEDERA_CUSTOMER_PRIVATE_KEY=$private_key
+HEDERA_MERCHANT_ACCOUNT_ID=$merchant_account_id
+HEDERA_MERCHANT_PRIVATE_KEY=$merchant_private_key
+EOF
+}
+
+create_client_env_file() {
+    local path="$1"
+    local customer_account_id="$2"
+    local customer_private_key="$3"
+
+    cat > "$path" << EOF
+# Hedera Configuration (ECDSA Account Only)
+HEDERA_NETWORK=testnet
+HEDERA_CUSTOMER_ACCOUNT_ID=$customer_account_id
+HEDERA_CUSTOMER_PRIVATE_KEY=$customer_private_key
 EOF
 }
 
@@ -125,32 +136,48 @@ if [ -f "$SERVER_ENV" ] && [ -f "$CLIENT_ENV" ]; then
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo "Keeping existing .env files"
-        ACCOUNT_ID=""
-        PRIVATE_KEY=""
+        MERCHANT_ACCOUNT_ID=""
+        MERCHANT_PRIVATE_KEY=""
+        CUSTOMER_ACCOUNT_ID=""
+        CUSTOMER_PRIVATE_KEY=""
     else
         echo -e "\n${BOLD}Hedera Testnet Credentials${RESET}"
         echo "Get free credentials at: https://portal.hedera.com/"
-        echo "(Create an ECDSA account - NOT ED25519)"
+        echo "${YELLOW}IMPORTANT: Create TWO separate ECDSA accounts (NOT ED25519)${RESET}"
+        echo "- One for the Merchant (server)"
+        echo "- One for the Customer (client)"
         echo
-        read -p "Hedera Account ID (e.g., 0.0.12345): " ACCOUNT_ID
-        read -p "Hedera Private Key (0x...): " PRIVATE_KEY
+        echo -e "${BOLD}Merchant Account (for server):${RESET}"
+        read -p "  Account ID (e.g., 0.0.12345): " MERCHANT_ACCOUNT_ID
+        read -p "  Private Key (0x...): " MERCHANT_PRIVATE_KEY
+        echo
+        echo -e "${BOLD}Customer Account (for client):${RESET}"
+        read -p "  Account ID (e.g., 0.0.12346): " CUSTOMER_ACCOUNT_ID
+        read -p "  Private Key (0x...): " CUSTOMER_PRIVATE_KEY
     fi
 else
     echo -e "\n${BOLD}Hedera Testnet Credentials${RESET}"
     echo "Get free credentials at: https://portal.hedera.com/"
-    echo "(Create an ECDSA account - NOT ED25519)"
+    echo -e "${YELLOW}IMPORTANT: Create TWO separate ECDSA accounts (NOT ED25519)${RESET}"
+    echo "- One for the Merchant (server)"
+    echo "- One for the Customer (client)"
     echo
-    read -p "Hedera Account ID (e.g., 0.0.12345): " ACCOUNT_ID
-    read -p "Hedera Private Key (0x...): " PRIVATE_KEY
+    echo -e "${BOLD}Merchant Account (for server):${RESET}"
+    read -p "  Account ID (e.g., 0.0.12345): " MERCHANT_ACCOUNT_ID
+    read -p "  Private Key (0x...): " MERCHANT_PRIVATE_KEY
+    echo
+    echo -e "${BOLD}Customer Account (for client):${RESET}"
+    read -p "  Account ID (e.g., 0.0.12346): " CUSTOMER_ACCOUNT_ID
+    read -p "  Private Key (0x...): " CUSTOMER_PRIVATE_KEY
 fi
 
-if [ -n "$ACCOUNT_ID" ] && [ -n "$PRIVATE_KEY" ]; then
-    create_env_file "$SERVER_ENV" "$ACCOUNT_ID" "$PRIVATE_KEY"
-    create_env_file "$CLIENT_ENV" "$ACCOUNT_ID" "$PRIVATE_KEY"
+if [ -n "$MERCHANT_ACCOUNT_ID" ] && [ -n "$MERCHANT_PRIVATE_KEY" ] && [ -n "$CUSTOMER_ACCOUNT_ID" ] && [ -n "$CUSTOMER_PRIVATE_KEY" ]; then
+    create_server_env_file "$SERVER_ENV" "$MERCHANT_ACCOUNT_ID" "$MERCHANT_PRIVATE_KEY"
+    create_client_env_file "$CLIENT_ENV" "$CUSTOMER_ACCOUNT_ID" "$CUSTOMER_PRIVATE_KEY"
     print_success "Created .env files in server/ and client/flower_shop/"
 elif [ ! -f "$SERVER_ENV" ]; then
-    create_env_file "$SERVER_ENV" "0.0.YOUR_ACCOUNT_ID" "0xYOUR_ECDSA_KEY"
-    create_env_file "$CLIENT_ENV" "0.0.YOUR_ACCOUNT_ID" "0xYOUR_ECDSA_KEY"
+    create_server_env_file "$SERVER_ENV" "0.0.YOUR_MERCHANT_ACCOUNT_ID" "0xYOUR_MERCHANT_ECDSA_KEY"
+    create_client_env_file "$CLIENT_ENV" "0.0.YOUR_CUSTOMER_ACCOUNT_ID" "0xYOUR_CUSTOMER_ECDSA_KEY"
     print_warning "Created placeholder .env files - edit with your credentials"
 fi
 
@@ -171,8 +198,8 @@ echo "   cd client/flower_shop"
 echo "   uv run simple_happy_path_client.py --server_url=http://localhost:8182"
 echo
 echo -e "${BOLD}Expected Output:${RESET}"
-echo '- "Using Hedera payment with account: 0.0.XXXXX"'
-echo '- "Transfer: X.XX HBAR from 0.0.XXXXX to 0.0.YYYYY"'
+echo '- "Using Hedera payment with account: 0.0.CUSTOMER"'
+echo '- "Transfer: X.XX HBAR from 0.0.CUSTOMER to 0.0.MERCHANT"'
 echo '- "Order ID: ..."'
 echo
 echo -e "${BOLD}Resources:${RESET}"
