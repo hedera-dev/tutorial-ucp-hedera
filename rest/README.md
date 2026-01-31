@@ -21,18 +21,17 @@ A complete demo of the Universal Commerce Protocol (UCP) with Hedera HBAR paymen
 ## Quick Start
 
 ```bash
-# 1. Clone the SDK (required dependency)
-mkdir sdk
-git clone https://github.com/Universal-Commerce-Protocol/python-sdk.git sdk/python
-pushd sdk/python
-uv sync
-popd
+# 1. clone this repo
+git clone https://github.com/hedera-dev/tutorial-ucp-hedera
+cd tutorial-ucp-hedera
 
-# 2. Clone this repo
-git clone https://github.com/hedera-dev/tutorial-ucp-hedera.git
-cd tutorial-ucp-hedera/rest
+# 3. clone and set up the UCP SDK (sibling directory)
+mkdir -p sdk
+git clone https://github.com/Universal-Commerce-Protocol/python-sdk.git sdk/python
+cd sdk/python && uv sync && cd -
 
 # 3. Run setup (installs deps, creates DB, configures Hedera)
+cd rest
 ./setup.sh
 
 # 4. Start server (Terminal 1)
